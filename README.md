@@ -65,6 +65,8 @@ Vimscript:
 ```vim
 command! TodologScan silent !todolog scan .
 command! TodologTasks cexpr system('todolog list --open --quickfix') | copen
+command! -nargs=1 TodologDone silent !todolog done <args>
+command! -nargs=1 TodologOpen silent !todolog open <args>
 ```
 
 Neovim Lua:
@@ -83,13 +85,45 @@ vim.api.nvim_create_user_command("TodologTasks", function()
   vim.cmd.copen()
 end, {})
 
-vim.keymap.set("n", "<leader>ts", "<cmd>TodologScan<cr>", {
+vim.api.nvim_create_user_command("TodologDone", function(opts)
+  vim.system({ "todolog", "done", opts.args }, { text = true }, function()
+    vim.schedule(function()
+      vim.cmd.TodologTasks()
+    end)
+  end)
+end, { nargs = 1 })
+
+vim.api.nvim_create_user_command("TodologOpen", function(opts)
+  vim.system({ "todolog", "open", opts.args }, { text = true }, function()
+    vim.schedule(function()
+      vim.cmd.TodologTasks()
+    end)
+  end)
+end, { nargs = 1 })
+
+vim.keymap.set("n", "<leader>Ts", "<cmd>TodologScan<cr>", {
   desc = "todolog scan project",
 })
 
-vim.keymap.set("n", "<leader>tq", "<cmd>TodologTasks<cr>", {
+vim.keymap.set("n", "<leader>Tq", "<cmd>TodologTasks<cr>", {
   desc = "todolog open quickfix tasks",
 })
+
+vim.keymap.set("n", "<leader>Td", function()
+  vim.ui.input({ prompt = "todolog done ID: " }, function(id)
+    if id and id ~= "" then
+      vim.cmd.TodologDone(id)
+    end
+  end)
+end, { desc = "todolog mark task done" })
+
+vim.keymap.set("n", "<leader>Tr", function()
+  vim.ui.input({ prompt = "todolog open ID: " }, function(id)
+    if id and id ~= "" then
+      vim.cmd.TodologOpen(id)
+    end
+  end)
+end, { desc = "todolog reopen task" })
 ```
 
 ## Emacs
