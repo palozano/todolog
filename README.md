@@ -82,6 +82,14 @@ vim.api.nvim_create_user_command("TodologTasks", function()
   })
   vim.cmd.copen()
 end, {})
+
+vim.keymap.set("n", "<leader>ts", "<cmd>TodologScan<cr>", {
+  desc = "todolog scan project",
+})
+
+vim.keymap.set("n", "<leader>tq", "<cmd>TodologTasks<cr>", {
+  desc = "todolog open quickfix tasks",
+})
 ```
 
 ## Emacs
