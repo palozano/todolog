@@ -65,9 +65,58 @@ end, {})
 
 ## Emacs
 
+Emacs does not need a dedicated package to run `todolog`. The useful built-in
+options are `compile`, `shell-command`, and `start-process`.
+
+Use `compile` when you want a visible buffer with clickable `file:line` output:
+
+```elisp
+(defvar todolog-command "todolog")
+
+(defun todolog-project-root ()
+  (if-let ((project (project-current)))
+      (project-root project)
+    default-directory))
+
+(defun todolog-list-open ()
+  (interactive)
+  (let ((default-directory (todolog-project-root)))
+    (compile (format "%s list --open" todolog-command))))
+```
+
+Use `shell-command` for simple synchronous commands:
+
 ```elisp
 (defun todolog-scan ()
   (interactive)
-  (compile "todolog scan ."))
+  (let ((default-directory (todolog-project-root)))
+    (shell-command (format "%s scan ." todolog-command))))
+
+(defun todolog-done (id)
+  (interactive "sTask ID: ")
+  (let ((default-directory (todolog-project-root)))
+    (shell-command (format "%s done %s" todolog-command id))))
+
+(defun todolog-open (id)
+  (interactive "sTask ID: ")
+  (let ((default-directory (todolog-project-root)))
+    (shell-command (format "%s open %s" todolog-command id))))
 ```
 
+Use `start-process` for async background execution:
+
+```elisp
+(defun todolog-scan-async ()
+  (interactive)
+  (let ((default-directory (todolog-project-root)))
+    (start-process "todolog-scan" "*todolog*" todolog-command "scan" ".")))
+```
+
+Example key bindings:
+
+```elisp
+(global-set-key (kbd "C-c t s") #'todolog-scan)
+(global-set-key (kbd "C-c t l") #'todolog-list-open)
+(global-set-key (kbd "C-c t d") #'todolog-done)
+(global-set-key (kbd "C-c t o") #'todolog-open)
+```
