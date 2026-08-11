@@ -57,9 +57,30 @@ todolog scan . --config path/to/todolog.conf
 
 ## Neovim
 
+`todolog list --quickfix` prints tasks as `file:line:column: message`, which can
+be loaded into Vim or Neovim's quickfix list.
+
+Vimscript:
+
+```vim
+command! TodologScan silent !todolog scan .
+command! TodologTasks cexpr system('todolog list --open --quickfix') | copen
+```
+
+Neovim Lua:
+
 ```lua
 vim.api.nvim_create_user_command("TodologScan", function()
   vim.fn.jobstart({ "todolog", "scan", vim.fn.getcwd() }, { detach = true })
+end, {})
+
+vim.api.nvim_create_user_command("TodologTasks", function()
+  vim.fn.setqflist({}, "r", {
+    title = "todolog",
+    lines = vim.fn.systemlist({ "todolog", "list", "--open", "--quickfix" }),
+    efm = "%f:%l:%c:%m",
+  })
+  vim.cmd.copen()
 end, {})
 ```
 

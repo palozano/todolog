@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::config::load_config;
 use crate::constants::{DEFAULT_CONFIG_FILE, DEFAULT_TASK_FILE};
-use crate::domain::{TaskId, TaskStatus};
+use crate::domain::{Task, TaskId, TaskStatus};
 use crate::scanner::scan_dir;
 use crate::store::{merge_tasks, read_tasks, update_status, write_tasks};
 
@@ -38,14 +38,7 @@ pub(crate) fn run(args: Vec<String>) -> Result<(), String> {
                 if options.open_only && task.status == TaskStatus::Done {
                     continue;
                 }
-                println!(
-                    "{} [{}] {}:{} {}",
-                    task.id,
-                    task.status.checkbox(),
-                    task.file,
-                    task.line,
-                    task.text
-                );
+                println!("{}", format_task(&task, options.format));
             }
             Ok(())
         }
@@ -126,12 +119,20 @@ impl ScanOptions {
 struct ListOptions {
     input: PathBuf,
     open_only: bool,
+    format: ListFormat,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ListFormat {
+    Default,
+    Quickfix,
 }
 
 impl ListOptions {
     fn parse(args: &[String]) -> Result<Self, String> {
         let mut input = PathBuf::from(DEFAULT_TASK_FILE);
         let mut open_only = false;
+        let mut format = ListFormat::Default;
         let mut index = 0;
 
         while index < args.len() {
@@ -144,6 +145,18 @@ impl ListOptions {
                         .ok_or("expected a path after --file")?;
                 }
                 "--open" => open_only = true,
+                "--quickfix" => format = ListFormat::Quickfix,
+                "--format" => {
+                    index += 1;
+                    format = match args.get(index).map(String::as_str) {
+                        Some("default") => ListFormat::Default,
+                        Some("quickfix") => ListFormat::Quickfix,
+                        Some(value) => {
+                            return Err(format!("unknown list format `{value}`"));
+                        }
+                        None => return Err("expected a value after --format".to_string()),
+                    };
+                }
                 value if value.starts_with('-') => {
                     return Err(format!("unknown option `{value}` for list"));
                 }
@@ -152,7 +165,27 @@ impl ListOptions {
             index += 1;
         }
 
-        Ok(Self { input, open_only })
+        Ok(Self {
+            input,
+            open_only,
+            format,
+        })
+    }
+}
+
+fn format_task(task: &Task, format: ListFormat) -> String {
+    match format {
+        ListFormat::Default => format!(
+            "{} [{}] {}:{} {}",
+            task.id,
+            task.status.checkbox(),
+            task.file,
+            task.line,
+            task.text
+        ),
+        ListFormat::Quickfix => {
+            format!("{}:{}:1: [{}] {}", task.file, task.line, task.id, task.text)
+        }
     }
 }
 
@@ -201,7 +234,7 @@ todolog tracks TODO comments in a plain Markdown file.
 
 Usage:
   todolog scan [ROOT] [-o TASKS.md] [-c .todolog]
-  todolog list [TASKS.md] [--open]
+  todolog list [TASKS.md] [--open] [--quickfix | --format quickfix]
   todolog done <TASK-ID> [-f TASKS.md]
   todolog open <TASK-ID> [-f TASKS.md]
 
@@ -211,4 +244,38 @@ Examples:
   todolog done 20260811-141530
 "
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{Fingerprint, LineNumber, TaskFile, TaskText, TodoMarker};
+
+    fn task() -> Task {
+        Task {
+            id: TaskId::new("20260811-141530"),
+            status: TaskStatus::Open,
+            file: TaskFile::new("src/main.rs"),
+            line: LineNumber::new(42).unwrap(),
+            marker: TodoMarker::Todo,
+            text: TaskText::new("wire editor command").unwrap(),
+            fingerprint: Fingerprint::new("0123456789abcdef"),
+        }
+    }
+
+    #[test]
+    fn formats_default_list_output() {
+        assert_eq!(
+            format_task(&task(), ListFormat::Default),
+            "20260811-141530 [ ] src/main.rs:42 wire editor command"
+        );
+    }
+
+    #[test]
+    fn formats_quickfix_list_output() {
+        assert_eq!(
+            format_task(&task(), ListFormat::Quickfix),
+            "src/main.rs:42:1: [20260811-141530] wire editor command"
+        );
+    }
 }
