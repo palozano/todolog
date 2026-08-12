@@ -17,6 +17,24 @@ ID like `20260811-141530`, and writes tasks grouped by filename:
 The HTML comment keeps the file easy to read while giving the CLI enough
 metadata to preserve IDs and done/open status across future scans.
 
+## Screenshots
+
+Interactive terminal UI:
+
+![todolog interactive terminal UI](docs/screenshots/todolog-tui.png)
+
+Plain list output:
+
+![todolog list output](docs/screenshots/todolog-list.png)
+
+Emacs task buffer:
+
+![todolog Emacs task buffer](docs/screenshots/todolog-emacs.png)
+
+Quickfix-compatible output:
+
+![todolog quickfix output](docs/screenshots/todolog-quickfix.png)
+
 ## Usage
 
 Install with Homebrew:
