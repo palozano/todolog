@@ -21,20 +21,32 @@ pub(crate) enum RenderMode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TaskListCommand {
     Quit,
-    Print(TaskId),
-    SetStatus(TaskId, TaskStatus),
+    Open(TaskId),
 }
 
-pub(crate) fn run_task_list(tasks: &[Task], mode: RenderMode) -> io::Result<TaskListCommand> {
-    let mut session = TerminalSession::start(mode)?;
+pub(crate) fn run_task_list<F>(
+    mut tasks: Vec<Task>,
+    mode: RenderMode,
+    mut set_status: F,
+) -> Result<TaskListCommand, String>
+where
+    F: FnMut(&TaskId, TaskStatus) -> Result<Vec<Task>, String>,
+{
+    let mut session =
+        TerminalSession::start(mode).map_err(|err| format!("failed to start TUI: {err}"))?;
     let mut selected = 0;
 
     loop {
-        session.terminal.draw(|frame| {
-            draw_task_list(frame, tasks, selected);
-        })?;
+        session
+            .terminal
+            .draw(|frame| {
+                draw_task_list(frame, &tasks, selected);
+            })
+            .map_err(|err| format!("failed to draw TUI: {err}"))?;
 
-        if let Event::Key(key) = event::read()? {
+        if let Event::Key(key) =
+            event::read().map_err(|err| format!("failed to read terminal input: {err}"))?
+        {
             match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => return Ok(TaskListCommand::Quit),
                 KeyCode::Char('j') | KeyCode::Down if !tasks.is_empty() => {
@@ -52,19 +64,15 @@ pub(crate) fn run_task_list(tasks: &[Task], mode: RenderMode) -> io::Result<Task
                 KeyCode::Home if !tasks.is_empty() => selected = 0,
                 KeyCode::End if !tasks.is_empty() => selected = tasks.len() - 1,
                 KeyCode::Enter if !tasks.is_empty() => {
-                    return Ok(TaskListCommand::Print(tasks[selected].id.clone()))
+                    return Ok(TaskListCommand::Open(tasks[selected].id.clone()))
                 }
                 KeyCode::Char('d') if !tasks.is_empty() => {
-                    return Ok(TaskListCommand::SetStatus(
-                        tasks[selected].id.clone(),
-                        TaskStatus::Done,
-                    ))
+                    tasks = set_status(&tasks[selected].id, TaskStatus::Done)?;
+                    selected = selected.min(tasks.len().saturating_sub(1));
                 }
                 KeyCode::Char('o') if !tasks.is_empty() => {
-                    return Ok(TaskListCommand::SetStatus(
-                        tasks[selected].id.clone(),
-                        TaskStatus::Open,
-                    ))
+                    tasks = set_status(&tasks[selected].id, TaskStatus::Open)?;
+                    selected = selected.min(tasks.len().saturating_sub(1));
                 }
                 _ => {}
             }
@@ -135,12 +143,12 @@ fn render_tasks(frame: &mut Frame<'_>, area: Rect, tasks: &[Task], selected: usi
     let items = tasks.iter().map(task_item);
     let mut state = ListState::default().with_selected(Some(selected));
     let list = List::new(items)
-        .block(base_block().title("open tasks"))
+        .block(titled_block("open tasks"))
         .highlight_symbol("  ")
         .highlight_style(
             Style::default()
-                .bg(Color::DarkGray)
-                .fg(Color::White)
+                .bg(Color::Rgb(142, 111, 40))
+                .fg(Color::Black)
                 .add_modifier(Modifier::BOLD),
         );
     frame.render_stateful_widget(list, area, &mut state);
@@ -205,7 +213,7 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, task: &Task) {
     ]);
 
     let detail = Paragraph::new(detail)
-        .block(base_block().title("selected task"))
+        .block(titled_block("selected task"))
         .wrap(Wrap { trim: true });
     frame.render_widget(detail, area);
 }
@@ -223,7 +231,7 @@ fn render_empty_state(frame: &mut Frame<'_>, area: Rect) {
         )),
     ]);
     let paragraph = Paragraph::new(empty)
-        .block(base_block().title("open tasks"))
+        .block(titled_block("open tasks"))
         .alignment(Alignment::Center)
         .wrap(Wrap { trim: true });
     frame.render_widget(paragraph, area);
@@ -232,19 +240,19 @@ fn render_empty_state(frame: &mut Frame<'_>, area: Rect) {
 fn render_help(frame: &mut Frame<'_>, area: Rect) {
     let help = Text::from(vec![
         Line::from(vec![
-            Span::styled("j/k or arrows", key_style()),
+            Span::styled("j/k", key_style()),
             Span::raw(" move  "),
             Span::styled("PgUp/PgDn", key_style()),
             Span::raw(" jump  "),
             Span::styled("Enter", key_style()),
-            Span::raw(" print selected task"),
+            Span::raw(" open"),
         ]),
         Line::from(vec![
             Span::styled("d", key_style()),
-            Span::raw(" mark done  "),
+            Span::raw(" done  "),
             Span::styled("o", key_style()),
             Span::raw(" reopen  "),
-            Span::styled("q or Esc", key_style()),
+            Span::styled("q/Esc", key_style()),
             Span::raw(" quit"),
         ]),
     ]);
@@ -260,6 +268,10 @@ fn base_block() -> Block<'static> {
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(Color::DarkGray))
+}
+
+fn titled_block(title: &'static str) -> Block<'static> {
+    base_block().title(title).title_alignment(Alignment::Center)
 }
 
 fn label_style() -> Style {

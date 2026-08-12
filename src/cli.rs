@@ -1,11 +1,13 @@
-use std::path::PathBuf;
+use std::env;
+use std::path::{Path, PathBuf};
+use std::process::Command as ProcessCommand;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::config::load_config;
 use crate::constants::{DEFAULT_CONFIG_FILE, DEFAULT_TASK_FILE};
-use crate::domain::{TaskId, TaskStatus};
-use crate::output::{format_task, format_tasks, TaskListFormat};
+use crate::domain::{Task, TaskId, TaskStatus};
+use crate::output::{format_tasks, TaskListFormat};
 use crate::scanner::scan_dir;
 use crate::store::{merge_tasks, read_tasks, write_tasks};
 use crate::tasks::{set_task_status, TaskQuery};
@@ -213,16 +215,22 @@ fn list(options: ListOptions) -> Result<(), String> {
         .map_err(|err| format!("failed to read {}: {err}", input.display()))?;
 
     if let Some(mode) = options.render_mode() {
-        match run_task_list(&tasks, mode).map_err(|err| format!("failed to run TUI: {err}"))? {
+        match run_task_list(tasks, mode, |id, status| {
+            set_task_status(&input, id, status)?;
+            TaskQuery::new()
+                .open_only(options.open)
+                .load(&input)
+                .map_err(|err| format!("failed to read {}: {err}", input.display()))
+        })? {
             TaskListCommand::Quit => {}
-            TaskListCommand::Print(id) => {
+            TaskListCommand::Open(id) => {
+                let tasks = TaskQuery::new()
+                    .open_only(options.open)
+                    .load(&input)
+                    .map_err(|err| format!("failed to read {}: {err}", input.display()))?;
                 if let Some(task) = tasks.iter().find(|task| task.id == id) {
-                    println!("{}", format_task(task, format));
+                    open_in_editor(task)?;
                 }
-            }
-            TaskListCommand::SetStatus(id, status) => {
-                set_task_status(&input, &id, status)?;
-                println!("updated {id}");
             }
         }
         return Ok(());
@@ -240,4 +248,87 @@ fn set_status(options: IdOptions, status: TaskStatus) -> Result<(), String> {
     set_task_status(&options.file, &id, status)?;
     println!("updated {id}");
     Ok(())
+}
+
+fn open_in_editor(task: &Task) -> Result<(), String> {
+    let editor = env::var("EDITOR")
+        .map_err(|_| "EDITOR is not set; set it to your preferred editor".to_string())?;
+    let mut parts = editor.split_whitespace();
+    let program = parts
+        .next()
+        .ok_or_else(|| "EDITOR is empty; set it to your preferred editor".to_string())?;
+    let mut args: Vec<String> = parts.map(str::to_string).collect();
+    let path = Path::new(task.file.as_str());
+    args.extend(editor_position_args(program, path, task.line.get()));
+
+    let status = ProcessCommand::new(program)
+        .args(&args)
+        .status()
+        .map_err(|err| format!("failed to run EDITOR `{editor}`: {err}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("EDITOR `{editor}` exited with {status}"))
+    }
+}
+
+fn editor_position_args(program: &str, path: &Path, line: usize) -> Vec<String> {
+    let editor = Path::new(program)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(program);
+    let path = path.display().to_string();
+
+    match editor {
+        "vi" | "vim" | "nvim" => vec![format!("+{line}"), path],
+        "nano" => vec![format!("+{line}"), path],
+        "emacs" | "emacsclient" => vec![format!("+{line}"), path],
+        "code" | "code-insiders" | "codium" | "zed" => {
+            vec!["-g".to_string(), format!("{path}:{line}")]
+        }
+        "hx" | "helix" => vec![format!("{path}:{line}")],
+        _ => vec![path],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn editor_position_args_supports_common_terminal_editors() {
+        assert_eq!(
+            editor_position_args("nvim", Path::new("src/main.rs"), 42),
+            vec!["+42", "src/main.rs"]
+        );
+        assert_eq!(
+            editor_position_args("emacsclient", Path::new("src/main.rs"), 42),
+            vec!["+42", "src/main.rs"]
+        );
+        assert_eq!(
+            editor_position_args("hx", Path::new("src/main.rs"), 42),
+            vec!["src/main.rs:42"]
+        );
+    }
+
+    #[test]
+    fn editor_position_args_supports_gui_editors_with_goto_flags() {
+        assert_eq!(
+            editor_position_args("code", Path::new("src/main.rs"), 42),
+            vec!["-g", "src/main.rs:42"]
+        );
+        assert_eq!(
+            editor_position_args("/usr/local/bin/zed", Path::new("src/main.rs"), 42),
+            vec!["-g", "src/main.rs:42"]
+        );
+    }
+
+    #[test]
+    fn editor_position_args_falls_back_to_file_path() {
+        assert_eq!(
+            editor_position_args("custom-editor", Path::new("src/main.rs"), 42),
+            vec!["src/main.rs"]
+        );
+    }
 }

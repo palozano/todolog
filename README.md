@@ -50,7 +50,7 @@ without scanning first, and `--inline` renders below the current prompt instead.
 Controls:
 
 - `Up`/`Down` or `k`/`j`: move through tasks
-- `Enter`: print the selected task after closing the UI
+- `Enter`: open the selected task in `$EDITOR` at its line
 - `d`: mark the selected task done
 - `o`: reopen the selected task
 - `q` or `Esc`: close the UI
