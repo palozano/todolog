@@ -187,7 +187,12 @@ Commands:
 - `:TodologScan [root]`: scan a directory, defaulting to the current working directory
 - `:TodologTasks`: load open tasks into the quickfix list
 - `:TodologDone {id}`: mark a task done and refresh quickfix
+- `:TodologDoneCurrent`: mark the selected quickfix task done and refresh quickfix
 - `:TodologOpen {id}`: reopen a task and refresh quickfix
+- `:TodologOpenCurrent`: reopen the selected quickfix task and refresh quickfix
+
+Inside the todolog quickfix list, use `d` to mark the selected task done and
+`r` to reopen it.
 
 When `keymaps = true`, the package adds:
 
@@ -228,11 +233,14 @@ For local testing, point `load-path` at this checkout:
 ```elisp
 (use-package todolog
   :load-path "/path/to/todolog"
-  :commands (todolog-list-open todolog-scan todolog-done todolog-open)
+  :commands (todolog-list-open todolog-scan todolog-done todolog-done-at-point
+             todolog-open todolog-open-at-point)
   :bind (("C-c T l" . todolog-list-open)
          ("C-c T s" . todolog-scan)
          ("C-c T d" . todolog-done)
-         ("C-c T o" . todolog-open)))
+         ("C-c T D" . todolog-done-at-point)
+         ("C-c T o" . todolog-open)
+         ("C-c T r" . todolog-open-at-point)))
 ```
 
 Or without `use-package`:
@@ -244,7 +252,9 @@ Or without `use-package`:
 (keymap-global-set "C-c T l" #'todolog-list-open)
 (keymap-global-set "C-c T s" #'todolog-scan)
 (keymap-global-set "C-c T d" #'todolog-done)
+(keymap-global-set "C-c T D" #'todolog-done-at-point)
 (keymap-global-set "C-c T o" #'todolog-open)
+(keymap-global-set "C-c T r" #'todolog-open-at-point)
 ```
 
 Inside the `*todolog tasks*` buffer:
@@ -257,6 +267,9 @@ Inside the `*todolog tasks*` buffer:
 - `d`: mark the task done
 - `r`: reopen the task
 - `q`: quit
+
+These task-buffer keys are also shown at the top of the buffer after each
+refresh.
 
 To package it through MELPA, add a recipe like this to MELPA's `recipes/`
 directory once the repository URL is public:

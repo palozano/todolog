@@ -10,6 +10,21 @@ local function notify(message, level)
   vim.notify(message, level or vim.log.levels.INFO, { title = "todolog" })
 end
 
+local function map_quickfix_actions()
+  if vim.bo.filetype ~= "qf" then
+    return
+  end
+
+  vim.keymap.set("n", "d", M.done_current, {
+    buffer = true,
+    desc = "todolog mark selected task done",
+  })
+  vim.keymap.set("n", "r", M.open_current, {
+    buffer = true,
+    desc = "todolog reopen selected task",
+  })
+end
+
 local function refresh_quickfix()
   local output = vim.fn.systemlist({ config.command, "list", "--open", "--quickfix" })
   if vim.v.shell_error ~= 0 then
@@ -23,6 +38,25 @@ local function refresh_quickfix()
     efm = "%f:%l:%c:%m",
   })
   vim.cmd(config.quickfix_position)
+  map_quickfix_actions()
+end
+
+local function current_quickfix_task_id()
+  local qflist = vim.fn.getqflist({ items = 0 })
+  local index = vim.bo.filetype == "qf" and vim.fn.line(".") or vim.fn.getqflist({ idx = 0 }).idx
+  local item = qflist.items[index]
+  if not item then
+    notify("No todolog quickfix item selected", vim.log.levels.WARN)
+    return nil
+  end
+
+  local id = item.text:match("^%[([^%]]+)%]")
+  if not id then
+    notify("Selected quickfix item does not contain a todolog ID", vim.log.levels.WARN)
+    return nil
+  end
+
+  return id
 end
 
 local function run_and_refresh(args)
@@ -49,8 +83,22 @@ function M.done(id)
   run_and_refresh({ "done", id })
 end
 
+function M.done_current()
+  local id = current_quickfix_task_id()
+  if id then
+    M.done(id)
+  end
+end
+
 function M.open(id)
   run_and_refresh({ "open", id })
+end
+
+function M.open_current()
+  local id = current_quickfix_task_id()
+  if id then
+    M.open(id)
+  end
 end
 
 function M.setup(opts)
@@ -68,9 +116,17 @@ function M.setup(opts)
     M.done(opts_.args)
   end, { nargs = 1 })
 
+  vim.api.nvim_create_user_command("TodologDoneCurrent", function()
+    M.done_current()
+  end, {})
+
   vim.api.nvim_create_user_command("TodologOpen", function(opts_)
     M.open(opts_.args)
   end, { nargs = 1 })
+
+  vim.api.nvim_create_user_command("TodologOpenCurrent", function()
+    M.open_current()
+  end, {})
 
   if config.keymaps then
     vim.keymap.set("n", "<leader>Ts", M.scan, { desc = "todolog scan project" })

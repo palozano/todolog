@@ -53,6 +53,10 @@ When this is a float, it is interpreted as a fraction of the frame height."
   "Face used for todolog file and line prefixes."
   :group 'todolog)
 
+(defconst todolog--help-text
+  "RET open  o other  v preview  g refresh  s scan  d done  r reopen  q quit"
+  "Help text shown at the top of todolog task buffers.")
+
 (defun todolog-project-root ()
   "Return the current project root, or `default-directory' outside projects."
   (if-let ((project (project-current)))
@@ -151,6 +155,13 @@ When this is a float, it is interpreted as a fraction of the frame height."
   "Return the absolute file path for TASK."
   (expand-file-name (plist-get task :file) default-directory))
 
+(defun todolog--insert-help ()
+  "Insert the todolog task buffer help line."
+  (let ((inhibit-read-only t))
+    (save-excursion
+      (goto-char (point-min))
+      (insert (propertize todolog--help-text 'face 'shadow) "\n\n"))))
+
 ;;;###autoload
 (defun todolog-refresh ()
   "Refresh the current todolog task buffer."
@@ -158,6 +169,7 @@ When this is a float, it is interpreted as a fraction of the frame height."
   (setq tabulated-list-entries
         (mapcar #'todolog--task-entry (todolog--read-open-tasks)))
   (tabulated-list-print t)
+  (todolog--insert-help)
   (message "Loaded %d open todolog task%s"
            (length tabulated-list-entries)
            (if (= (length tabulated-list-entries) 1) "" "s")))
