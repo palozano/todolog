@@ -4,6 +4,7 @@ use crate::domain::Task;
 pub(crate) enum TaskListFormat {
     Default,
     Quickfix,
+    Emacs,
 }
 
 pub(crate) fn format_task(task: &Task, format: TaskListFormat) -> String {
@@ -18,6 +19,9 @@ pub(crate) fn format_task(task: &Task, format: TaskListFormat) -> String {
         ),
         TaskListFormat::Quickfix => {
             format!("{}:{}:1: [{}] {}", task.file, task.line, task.id, task.text)
+        }
+        TaskListFormat::Emacs => {
+            format!("{}:{}:1: {} [{}]", task.file, task.line, task.text, task.id)
         }
     }
 }
@@ -64,6 +68,14 @@ mod tests {
         assert_eq!(
             format_task(&task(), TaskListFormat::Quickfix),
             "src/main.rs:42:1: [20260811-141530] wire editor command"
+        );
+    }
+
+    #[test]
+    fn formats_emacs_list_output() {
+        assert_eq!(
+            format_task(&task(), TaskListFormat::Emacs),
+            "src/main.rs:42:1: wire editor command [20260811-141530]"
         );
     }
 }

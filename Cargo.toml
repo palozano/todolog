@@ -7,6 +7,10 @@ repository = "https://github.com/palozano/todolog"
 license = "MIT"
 keywords = ["todo", "cli", "tasks", "quickfix"]
 categories = ["command-line-utilities", "development-tools"]
+exclude = [
+    "editors/",
+    "todolog.el",
+]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }

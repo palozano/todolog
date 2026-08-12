@@ -106,6 +106,9 @@ struct ListOptions {
     /// Print Vim/Neovim quickfix-compatible output.
     #[arg(long)]
     quickfix: bool,
+    /// Print Emacs compilation-buffer-compatible output.
+    #[arg(long)]
+    emacs: bool,
     /// Output format for non-interactive listing.
     #[arg(long, value_enum)]
     format: Option<ListFormatArg>,
@@ -122,6 +125,8 @@ impl ListOptions {
     fn list_format(&self) -> TaskListFormat {
         if self.quickfix {
             TaskListFormat::Quickfix
+        } else if self.emacs {
+            TaskListFormat::Emacs
         } else {
             self.format
                 .map(ListFormatArg::into_task_list_format)
@@ -144,6 +149,7 @@ impl ListOptions {
 enum ListFormatArg {
     Default,
     Quickfix,
+    Emacs,
 }
 
 impl ListFormatArg {
@@ -151,6 +157,7 @@ impl ListFormatArg {
         match self {
             Self::Default => TaskListFormat::Default,
             Self::Quickfix => TaskListFormat::Quickfix,
+            Self::Emacs => TaskListFormat::Emacs,
         }
     }
 }
@@ -202,6 +209,7 @@ fn run_default(no_scan: bool) -> Result<(), String> {
         inline: false,
         full_screen: false,
         quickfix: false,
+        emacs: false,
         format: None,
     })
 }

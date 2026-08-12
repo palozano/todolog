@@ -148,8 +148,7 @@ fn render_tasks(frame: &mut Frame<'_>, area: Rect, tasks: &[Task], selected: usi
         .highlight_style(
             Style::default()
                 .bg(Color::Rgb(142, 111, 40))
-                .fg(Color::Black)
-                .add_modifier(Modifier::BOLD),
+                .fg(Color::Rgb(255, 244, 201)),
         );
     frame.render_stateful_widget(list, area, &mut state);
 }

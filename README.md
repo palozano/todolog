@@ -24,6 +24,7 @@ cargo run --
 cargo run -- --no-scan
 cargo run -- scan .
 cargo run -- list --open
+cargo run -- list --open --emacs
 cargo run -- list --open --interactive
 cargo run -- done 20260811-141530
 cargo run -- open 20260811-141530
@@ -36,6 +37,7 @@ todolog
 todolog --no-scan
 todolog scan .
 todolog list --open
+todolog list --open --emacs
 todolog list --open --interactive
 todolog done 20260811-141530
 ```
@@ -76,52 +78,88 @@ You can also pass a config file explicitly:
 todolog scan . --config path/to/todolog.conf
 ```
 
-## Neovim
+## Editor integrations
 
 `todolog list --quickfix` prints tasks as `file:line:column: message`, which can
 be loaded into Vim or Neovim's quickfix list.
 
-Vimscript:
+The repository ships separate Vim and Neovim packages under `editors/`.
 
-```vim
-command! TodologScan silent !todolog scan .
-command! TodologTasks cexpr system('todolog list --open --quickfix') | copen
-command! -nargs=1 TodologDone silent !todolog done <args>
-command! -nargs=1 TodologOpen silent !todolog open <args>
+### Vimscript
+
+The Vim package lives in `editors/vim/todolog.vim` and is written in Vimscript.
+
+With Vim's native packages:
+
+```sh
+mkdir -p ~/.vim/pack/todolog/start
+ln -s /path/to/todolog/editors/vim/todolog.vim ~/.vim/pack/todolog/start/todolog.vim
 ```
 
-Neovim Lua:
+Or with vim-plug:
 
 ```lua
-vim.api.nvim_create_user_command("TodologScan", function()
-  vim.fn.jobstart({ "todolog", "scan", vim.fn.getcwd() }, { detach = true })
-end, {})
+Plug '/path/to/todolog/editors/vim/todolog.vim'
+```
 
-vim.api.nvim_create_user_command("TodologTasks", function()
-  vim.fn.setqflist({}, "r", {
-    title = "todolog",
-    lines = vim.fn.systemlist({ "todolog", "list", "--open", "--quickfix" }),
-    efm = "%f:%l:%c:%m",
-  })
-  vim.cmd.copen()
-end, {})
+Commands:
 
-vim.api.nvim_create_user_command("TodologDone", function(opts)
-  vim.system({ "todolog", "done", opts.args }, { text = true }, function()
-    vim.schedule(function()
-      vim.cmd.TodologTasks()
-    end)
-  end)
-end, { nargs = 1 })
+- `:TodologScan [root]`: scan a directory, defaulting to the current working directory
+- `:TodologTasks`: load open tasks into the quickfix list
+- `:TodologTasks!`: load open tasks and open quickfix at the bottom
+- `:TodologDone {id}`: mark a task done and refresh quickfix
+- `:TodologOpen {id}`: reopen a task and refresh quickfix
 
-vim.api.nvim_create_user_command("TodologOpen", function(opts)
-  vim.system({ "todolog", "open", opts.args }, { text = true }, function()
-    vim.schedule(function()
-      vim.cmd.TodologTasks()
-    end)
-  end)
-end, { nargs = 1 })
+Optional mappings:
 
+```vim
+nmap <leader>Ts <Plug>(todolog-scan)
+nmap <leader>Tq <Plug>(todolog-tasks)
+```
+
+### Neovim Lua
+
+The Neovim package lives in `editors/nvim/todolog.nvim` and is written in Lua.
+
+With Neovim's native packages:
+
+```sh
+mkdir -p ~/.local/share/nvim/site/pack/todolog/start
+ln -s /path/to/todolog/editors/nvim/todolog.nvim ~/.local/share/nvim/site/pack/todolog/start/todolog.nvim
+```
+
+With lazy.nvim:
+
+```lua
+{
+  dir = "/path/to/todolog/editors/nvim/todolog.nvim",
+  opts = {
+    keymaps = true,
+  },
+}
+```
+
+With packer.nvim:
+
+```lua
+use({
+  "/path/to/todolog/editors/nvim/todolog.nvim",
+  config = function()
+    require("todolog").setup({ keymaps = true })
+  end,
+})
+```
+
+Commands:
+
+- `:TodologScan [root]`: scan a directory, defaulting to the current working directory
+- `:TodologTasks`: load open tasks into the quickfix list
+- `:TodologDone {id}`: mark a task done and refresh quickfix
+- `:TodologOpen {id}`: reopen a task and refresh quickfix
+
+When `keymaps = true`, the package adds:
+
+```lua
 vim.keymap.set("n", "<leader>Ts", "<cmd>TodologScan<cr>", {
   desc = "todolog scan project",
 })
@@ -149,58 +187,48 @@ end, { desc = "todolog reopen task" })
 
 ## Emacs
 
-Emacs does not need a dedicated package to run `todolog`. The useful built-in
-options are `compile`, `shell-command`, and `start-process`.
+The repository includes `todolog.el`, an Emacs package that provides a dedicated
+`tabulated-list-mode` task buffer. It shells out to the `todolog` binary, so make
+sure the CLI is installed and visible on Emacs' `exec-path`.
 
-Use `compile` when you want a visible buffer with clickable `file:line` output:
+For local testing, point `load-path` at this checkout:
 
 ```elisp
-(defvar todolog-command "todolog")
-
-(defun todolog-project-root ()
-  (if-let ((project (project-current)))
-      (project-root project)
-    default-directory))
-
-(defun todolog-list-open ()
-  (interactive)
-  (let ((default-directory (todolog-project-root)))
-    (compile (format "%s list --open" todolog-command))))
+(use-package todolog
+  :load-path "/path/to/todolog"
+  :commands (todolog-list-open todolog-scan todolog-done todolog-open)
+  :bind (("C-c T l" . todolog-list-open)
+         ("C-c T s" . todolog-scan)
+         ("C-c T d" . todolog-done)
+         ("C-c T o" . todolog-open)))
 ```
 
-Use `shell-command` for simple synchronous commands:
+Or without `use-package`:
 
 ```elisp
-(defun todolog-scan ()
-  (interactive)
-  (let ((default-directory (todolog-project-root)))
-    (shell-command (format "%s scan ." todolog-command))))
+(add-to-list 'load-path "/path/to/todolog")
+(require 'todolog)
 
-(defun todolog-done (id)
-  (interactive "sTask ID: ")
-  (let ((default-directory (todolog-project-root)))
-    (shell-command (format "%s done %s" todolog-command id))))
-
-(defun todolog-open (id)
-  (interactive "sTask ID: ")
-  (let ((default-directory (todolog-project-root)))
-    (shell-command (format "%s open %s" todolog-command id))))
+(keymap-global-set "C-c T l" #'todolog-list-open)
+(keymap-global-set "C-c T s" #'todolog-scan)
+(keymap-global-set "C-c T d" #'todolog-done)
+(keymap-global-set "C-c T o" #'todolog-open)
 ```
 
-Use `start-process` for async background execution:
+Inside the `*todolog tasks*` buffer:
+
+- `RET`: open the task in the current window
+- `o`: open the task in another window
+- `v`: preview the task in a bottom window
+- `g`: refresh
+- `s`: scan the current project
+- `d`: mark the task done
+- `r`: reopen the task
+- `q`: quit
+
+To package it through MELPA, add a recipe like this to MELPA's `recipes/`
+directory once the repository URL is public:
 
 ```elisp
-(defun todolog-scan-async ()
-  (interactive)
-  (let ((default-directory (todolog-project-root)))
-    (start-process "todolog-scan" "*todolog*" todolog-command "scan" ".")))
-```
-
-Example key bindings:
-
-```elisp
-(global-set-key (kbd "C-c t s") #'todolog-scan)
-(global-set-key (kbd "C-c t l") #'todolog-list-open)
-(global-set-key (kbd "C-c t d") #'todolog-done)
-(global-set-key (kbd "C-c t o") #'todolog-open)
+(todolog :fetcher github :repo "lasantosr/todolog")
 ```
