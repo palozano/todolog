@@ -4,10 +4,10 @@
 
 ;; Author: Pablo Lozano
 ;; Maintainer: Pablo Lozano
-;; Version: 0.1.0
+;; Version: 0.3.1
 ;; Package-Requires: ((emacs "29.1"))
 ;; Keywords: tools, convenience
-;; URL: https://github.com/lasantosr/todolog
+;; URL: https://github.com/palozano/todolog
 
 ;; This file is not part of GNU Emacs.
 

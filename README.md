@@ -244,5 +244,5 @@ To package it through MELPA, add a recipe like this to MELPA's `recipes/`
 directory once the repository URL is public:
 
 ```elisp
-(todolog :fetcher github :repo "lasantosr/todolog")
+(todolog :fetcher github :repo "palozano/todolog")
 ```
