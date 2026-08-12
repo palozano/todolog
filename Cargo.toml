@@ -9,3 +9,6 @@ keywords = ["todo", "cli", "tasks", "quickfix"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
+clap = { version = "4.5", features = ["derive"] }
+crossterm = "0.29"
+ratatui = "0.30.2"

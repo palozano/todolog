@@ -20,8 +20,11 @@ metadata to preserve IDs and done/open status across future scans.
 ## Usage
 
 ```sh
+cargo run --
+cargo run -- --no-scan
 cargo run -- scan .
 cargo run -- list --open
+cargo run -- list --open --interactive
 cargo run -- done 20260811-141530
 cargo run -- open 20260811-141530
 ```
@@ -29,10 +32,28 @@ cargo run -- open 20260811-141530
 After installing the binary somewhere on your `PATH`, drop `cargo run --`:
 
 ```sh
+todolog
+todolog --no-scan
 todolog scan .
 todolog list --open
+todolog list --open --interactive
 todolog done 20260811-141530
 ```
+
+## Interactive task list
+
+Running `todolog` scans the current directory and then opens a full-screen
+terminal UI with open tasks. Use `todolog --no-scan` to skip the scan and open
+the last written task file. `todolog list --interactive` opens the same UI
+without scanning first, and `--inline` renders below the current prompt instead.
+
+Controls:
+
+- `Up`/`Down` or `k`/`j`: move through tasks
+- `Enter`: print the selected task after closing the UI
+- `d`: mark the selected task done
+- `o`: reopen the selected task
+- `q` or `Esc`: close the UI
 
 ## Config
 

@@ -125,27 +125,6 @@ pub(crate) fn write_tasks(path: &Path, tasks: &[Task]) -> io::Result<()> {
     fs::write(path, output)
 }
 
-pub(crate) fn update_status(path: &Path, id: &TaskId, status: TaskStatus) -> Result<(), String> {
-    let mut tasks =
-        read_tasks(path).map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    let mut found = false;
-
-    for task in &mut tasks {
-        if &task.id == id {
-            task.status = status;
-            found = true;
-        }
-    }
-
-    if !found {
-        return Err(format!("task `{id}` was not found in {}", path.display()));
-    }
-
-    write_tasks(path, &tasks)
-        .map_err(|err| format!("failed to write {}: {err}", path.display()))?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,69 +291,5 @@ mod tests {
         assert_eq!(merged[0].id, TaskId::new("T-DUPLICATE"));
         assert_eq!(merged[1].id, TaskId::new("T-DUPLICATE-2"));
         assert_eq!(merged[2].id, TaskId::new("T-DUPLICATE-3"));
-    }
-
-    #[test]
-    fn update_status_changes_only_matching_task() {
-        let dir = temp_dir("status");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let task_file = dir.join("TASKS.md");
-        let tasks = vec![
-            task(
-                "T-FIRST",
-                TaskStatus::Open,
-                "src/a.rs",
-                1,
-                TodoMarker::Todo,
-                "first",
-                Fingerprint::new("aaaaaaaaaaaaaaaa"),
-            ),
-            task(
-                "T-SECOND",
-                TaskStatus::Open,
-                "src/b.rs",
-                2,
-                TodoMarker::Hack,
-                "second",
-                Fingerprint::new("bbbbbbbbbbbbbbbb"),
-            ),
-        ];
-
-        write_tasks(&task_file, &tasks).unwrap();
-        update_status(&task_file, &TaskId::new("T-SECOND"), TaskStatus::Done).unwrap();
-        let updated = read_tasks(&task_file).unwrap();
-
-        assert_eq!(updated[0].status, TaskStatus::Open);
-        assert_eq!(updated[1].status, TaskStatus::Done);
-
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn update_status_errors_for_unknown_task() {
-        let dir = temp_dir("missing-status");
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        let task_file = dir.join("TASKS.md");
-        write_tasks(
-            &task_file,
-            &[task(
-                "T-FIRST",
-                TaskStatus::Open,
-                "src/a.rs",
-                1,
-                TodoMarker::Todo,
-                "first",
-                Fingerprint::new("aaaaaaaaaaaaaaaa"),
-            )],
-        )
-        .unwrap();
-
-        let error =
-            update_status(&task_file, &TaskId::new("T-MISSING"), TaskStatus::Done).unwrap_err();
-        assert!(error.contains("T-MISSING"));
-
-        let _ = fs::remove_dir_all(&dir);
     }
 }

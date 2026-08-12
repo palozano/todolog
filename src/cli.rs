@@ -1,113 +1,80 @@
 use std::path::PathBuf;
 
+use clap::{Args, Parser, Subcommand, ValueEnum};
+
 use crate::config::load_config;
 use crate::constants::{DEFAULT_CONFIG_FILE, DEFAULT_TASK_FILE};
-use crate::domain::{Task, TaskId, TaskStatus};
+use crate::domain::{TaskId, TaskStatus};
+use crate::output::{format_task, format_tasks, TaskListFormat};
 use crate::scanner::scan_dir;
-use crate::store::{merge_tasks, read_tasks, update_status, write_tasks};
+use crate::store::{merge_tasks, read_tasks, write_tasks};
+use crate::tasks::{set_task_status, TaskQuery};
+use crate::tui::{run_task_list, RenderMode, TaskListCommand};
 
 pub(crate) fn run(args: Vec<String>) -> Result<(), String> {
-    let command = args.get(1).map(String::as_str).unwrap_or("help");
+    let cli = match Cli::try_parse_from(args) {
+        Ok(cli) => cli,
+        Err(err) if err.kind() == clap::error::ErrorKind::DisplayHelp => {
+            err.print()
+                .map_err(|print_err| format!("failed to print help: {print_err}"))?;
+            return Ok(());
+        }
+        Err(err) if err.kind() == clap::error::ErrorKind::DisplayVersion => {
+            err.print()
+                .map_err(|print_err| format!("failed to print version: {print_err}"))?;
+            return Ok(());
+        }
+        Err(err) => return Err(err.to_string()),
+    };
 
-    match command {
-        "scan" => {
-            let options = ScanOptions::parse(&args[2..])?;
-            let config = load_config(&options.config_path()).map_err(|err| {
-                format!("failed to read {}: {err}", options.config_path().display())
-            })?;
-            let existing = read_tasks(&options.output)
-                .map_err(|err| format!("failed to read {}: {err}", options.output.display()))?;
-            let scanned = scan_dir(&options.root, &options.output, &config)
-                .map_err(|err| format!("failed to scan {}: {err}", options.root.display()))?;
-            let merged = merge_tasks(scanned, existing);
-            write_tasks(&options.output, &merged)
-                .map_err(|err| format!("failed to write {}: {err}", options.output.display()))?;
-            println!(
-                "wrote {} task{} to {}",
-                merged.len(),
-                if merged.len() == 1 { "" } else { "s" },
-                options.output.display()
-            );
-            Ok(())
-        }
-        "list" => {
-            let options = ListOptions::parse(&args[2..])?;
-            let tasks = read_tasks(&options.input)
-                .map_err(|err| format!("failed to read {}: {err}", options.input.display()))?;
-            for task in tasks {
-                if options.open_only && task.status == TaskStatus::Done {
-                    continue;
-                }
-                println!("{}", format_task(&task, options.format));
-            }
-            Ok(())
-        }
-        "done" => {
-            let options = IdOptions::parse("done", &args[2..])?;
-            update_status(&options.file, &options.id, TaskStatus::Done)?;
-            println!("updated {}", options.id);
-            Ok(())
-        }
-        "open" => {
-            let options = IdOptions::parse("open", &args[2..])?;
-            update_status(&options.file, &options.id, TaskStatus::Open)?;
-            println!("updated {}", options.id);
-            Ok(())
-        }
-        "help" | "-h" | "--help" => {
-            print_help();
-            Ok(())
-        }
-        unknown => Err(format!("unknown command `{unknown}`; try `todolog help`")),
+    match cli.command {
+        Some(Command::Scan(options)) => scan(options),
+        Some(Command::List(options)) => list(options),
+        Some(Command::Done(options)) => set_status(options, TaskStatus::Done),
+        Some(Command::Open(options)) => set_status(options, TaskStatus::Open),
+        None => run_default(cli.no_scan),
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Parser)]
+#[command(
+    name = "todolog",
+    about = "Track TODO comments in a plain Markdown task file."
+)]
+struct Cli {
+    /// Skip scanning before opening the default interactive task list.
+    #[arg(long)]
+    no_scan: bool,
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Scan source files and write the task file.
+    Scan(ScanOptions),
+    /// Display tasks as text or in an interactive terminal UI.
+    List(ListOptions),
+    /// Mark a task as done.
+    Done(IdOptions),
+    /// Reopen a task.
+    Open(IdOptions),
+}
+
+#[derive(Debug, Args)]
 struct ScanOptions {
+    /// Directory to scan.
+    #[arg(default_value = ".")]
     root: PathBuf,
+    /// Task file to write.
+    #[arg(short, long, default_value = DEFAULT_TASK_FILE)]
     output: PathBuf,
+    /// Config file to read.
+    #[arg(short, long)]
     config: Option<PathBuf>,
 }
 
 impl ScanOptions {
-    fn parse(args: &[String]) -> Result<Self, String> {
-        let mut root = PathBuf::from(".");
-        let mut output = PathBuf::from(DEFAULT_TASK_FILE);
-        let mut config = None;
-        let mut index = 0;
-
-        while index < args.len() {
-            match args[index].as_str() {
-                "-o" | "--output" => {
-                    index += 1;
-                    output = args
-                        .get(index)
-                        .map(PathBuf::from)
-                        .ok_or("expected a path after --output")?;
-                }
-                "-c" | "--config" => {
-                    index += 1;
-                    config = Some(
-                        args.get(index)
-                            .map(PathBuf::from)
-                            .ok_or("expected a path after --config")?,
-                    );
-                }
-                value if value.starts_with('-') => {
-                    return Err(format!("unknown option `{value}` for scan"));
-                }
-                value => root = PathBuf::from(value),
-            }
-            index += 1;
-        }
-
-        Ok(Self {
-            root,
-            output,
-            config,
-        })
-    }
-
     fn config_path(&self) -> PathBuf {
         self.config
             .clone()
@@ -115,167 +82,162 @@ impl ScanOptions {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Args)]
 struct ListOptions {
-    input: PathBuf,
-    open_only: bool,
-    format: ListFormat,
+    /// Task file to read.
+    input: Option<PathBuf>,
+    /// Task file to read.
+    #[arg(short, long)]
+    file: Option<PathBuf>,
+    /// Show only open tasks.
+    #[arg(long)]
+    open: bool,
+    /// Display tasks in an interactive full-screen terminal UI.
+    #[arg(short, long)]
+    interactive: bool,
+    /// Display the interactive terminal UI inline.
+    #[arg(short = 'l', long)]
+    inline: bool,
+    /// Display the interactive terminal UI full-screen.
+    #[arg(long)]
+    full_screen: bool,
+    /// Print Vim/Neovim quickfix-compatible output.
+    #[arg(long)]
+    quickfix: bool,
+    /// Output format for non-interactive listing.
+    #[arg(long, value_enum)]
+    format: Option<ListFormatArg>,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum ListFormat {
+impl ListOptions {
+    fn input_path(&self) -> PathBuf {
+        self.file
+            .clone()
+            .or_else(|| self.input.clone())
+            .unwrap_or_else(|| PathBuf::from(DEFAULT_TASK_FILE))
+    }
+
+    fn list_format(&self) -> TaskListFormat {
+        if self.quickfix {
+            TaskListFormat::Quickfix
+        } else {
+            self.format
+                .map(ListFormatArg::into_task_list_format)
+                .unwrap_or(TaskListFormat::Default)
+        }
+    }
+
+    fn render_mode(&self) -> Option<RenderMode> {
+        if self.inline {
+            Some(RenderMode::Inline)
+        } else if self.interactive || self.full_screen {
+            Some(RenderMode::FullScreen)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ListFormatArg {
     Default,
     Quickfix,
 }
 
-impl ListOptions {
-    fn parse(args: &[String]) -> Result<Self, String> {
-        let mut input = PathBuf::from(DEFAULT_TASK_FILE);
-        let mut open_only = false;
-        let mut format = ListFormat::Default;
-        let mut index = 0;
-
-        while index < args.len() {
-            match args[index].as_str() {
-                "-f" | "--file" => {
-                    index += 1;
-                    input = args
-                        .get(index)
-                        .map(PathBuf::from)
-                        .ok_or("expected a path after --file")?;
-                }
-                "--open" => open_only = true,
-                "--quickfix" => format = ListFormat::Quickfix,
-                "--format" => {
-                    index += 1;
-                    format = match args.get(index).map(String::as_str) {
-                        Some("default") => ListFormat::Default,
-                        Some("quickfix") => ListFormat::Quickfix,
-                        Some(value) => {
-                            return Err(format!("unknown list format `{value}`"));
-                        }
-                        None => return Err("expected a value after --format".to_string()),
-                    };
-                }
-                value if value.starts_with('-') => {
-                    return Err(format!("unknown option `{value}` for list"));
-                }
-                value => input = PathBuf::from(value),
-            }
-            index += 1;
-        }
-
-        Ok(Self {
-            input,
-            open_only,
-            format,
-        })
-    }
-}
-
-fn format_task(task: &Task, format: ListFormat) -> String {
-    match format {
-        ListFormat::Default => format!(
-            "{} [{}] {}:{} {}",
-            task.id,
-            task.status.checkbox(),
-            task.file,
-            task.line,
-            task.text
-        ),
-        ListFormat::Quickfix => {
-            format!("{}:{}:1: [{}] {}", task.file, task.line, task.id, task.text)
+impl ListFormatArg {
+    fn into_task_list_format(self) -> TaskListFormat {
+        match self {
+            Self::Default => TaskListFormat::Default,
+            Self::Quickfix => TaskListFormat::Quickfix,
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Args)]
 struct IdOptions {
+    /// Task ID to update.
+    id: String,
+    /// Task file to update.
+    #[arg(short, long, default_value = DEFAULT_TASK_FILE)]
     file: PathBuf,
-    id: TaskId,
 }
 
-impl IdOptions {
-    fn parse(command: &str, args: &[String]) -> Result<Self, String> {
-        let mut file = PathBuf::from(DEFAULT_TASK_FILE);
-        let mut id = None;
-        let mut index = 0;
+fn scan(options: ScanOptions) -> Result<(), String> {
+    let config = load_config(&options.config_path())
+        .map_err(|err| format!("failed to read {}: {err}", options.config_path().display()))?;
+    let existing = read_tasks(&options.output)
+        .map_err(|err| format!("failed to read {}: {err}", options.output.display()))?;
+    let scanned = scan_dir(&options.root, &options.output, &config)
+        .map_err(|err| format!("failed to scan {}: {err}", options.root.display()))?;
+    let merged = merge_tasks(scanned, existing);
 
-        while index < args.len() {
-            match args[index].as_str() {
-                "-f" | "--file" => {
-                    index += 1;
-                    file = args
-                        .get(index)
-                        .map(PathBuf::from)
-                        .ok_or("expected a path after --file")?;
-                }
-                value if value.starts_with('-') => {
-                    return Err(format!("unknown option `{value}` for {command}"));
-                }
-                value => id = Some(value.to_string()),
-            }
-            index += 1;
-        }
-
-        Ok(Self {
-            file,
-            id: id
-                .map(TaskId::new)
-                .ok_or_else(|| format!("usage: todolog {command} <TASK-ID>"))?,
-        })
-    }
-}
-
-fn print_help() {
+    write_tasks(&options.output, &merged)
+        .map_err(|err| format!("failed to write {}: {err}", options.output.display()))?;
     println!(
-        "\
-todolog tracks TODO comments in a plain Markdown file.
-
-Usage:
-  todolog scan [ROOT] [-o TASKS.md] [-c .todolog]
-  todolog list [TASKS.md] [--open] [--quickfix | --format quickfix]
-  todolog done <TASK-ID> [-f TASKS.md]
-  todolog open <TASK-ID> [-f TASKS.md]
-
-Examples:
-  todolog scan .
-  todolog list --open
-  todolog done 20260811-141530
-"
+        "wrote {} task{} to {}",
+        merged.len(),
+        if merged.len() == 1 { "" } else { "s" },
+        options.output.display()
     );
+
+    Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::{Fingerprint, LineNumber, TaskFile, TaskText, TodoMarker};
+fn run_default(no_scan: bool) -> Result<(), String> {
+    if !no_scan {
+        scan(ScanOptions {
+            root: PathBuf::from("."),
+            output: PathBuf::from(DEFAULT_TASK_FILE),
+            config: None,
+        })?;
+    }
 
-    fn task() -> Task {
-        Task {
-            id: TaskId::new("20260811-141530"),
-            status: TaskStatus::Open,
-            file: TaskFile::new("src/main.rs"),
-            line: LineNumber::new(42).unwrap(),
-            marker: TodoMarker::Todo,
-            text: TaskText::new("wire editor command").unwrap(),
-            fingerprint: Fingerprint::new("0123456789abcdef"),
+    list(ListOptions {
+        input: None,
+        file: None,
+        open: true,
+        interactive: true,
+        inline: false,
+        full_screen: false,
+        quickfix: false,
+        format: None,
+    })
+}
+
+fn list(options: ListOptions) -> Result<(), String> {
+    let input = options.input_path();
+    let format = options.list_format();
+    let tasks = TaskQuery::new()
+        .open_only(options.open)
+        .load(&input)
+        .map_err(|err| format!("failed to read {}: {err}", input.display()))?;
+
+    if let Some(mode) = options.render_mode() {
+        match run_task_list(&tasks, mode).map_err(|err| format!("failed to run TUI: {err}"))? {
+            TaskListCommand::Quit => {}
+            TaskListCommand::Print(id) => {
+                if let Some(task) = tasks.iter().find(|task| task.id == id) {
+                    println!("{}", format_task(task, format));
+                }
+            }
+            TaskListCommand::SetStatus(id, status) => {
+                set_task_status(&input, &id, status)?;
+                println!("updated {id}");
+            }
         }
+        return Ok(());
     }
 
-    #[test]
-    fn formats_default_list_output() {
-        assert_eq!(
-            format_task(&task(), ListFormat::Default),
-            "20260811-141530 [ ] src/main.rs:42 wire editor command"
-        );
+    for line in format_tasks(&tasks, format) {
+        println!("{line}");
     }
 
-    #[test]
-    fn formats_quickfix_list_output() {
-        assert_eq!(
-            format_task(&task(), ListFormat::Quickfix),
-            "src/main.rs:42:1: [20260811-141530] wire editor command"
-        );
-    }
+    Ok(())
+}
+
+fn set_status(options: IdOptions, status: TaskStatus) -> Result<(), String> {
+    let id = TaskId::new(options.id);
+    set_task_status(&options.file, &id, status)?;
+    println!("updated {id}");
+    Ok(())
 }
