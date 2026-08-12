@@ -19,6 +19,20 @@ metadata to preserve IDs and done/open status across future scans.
 
 ## Usage
 
+Install with Homebrew:
+
+```sh
+brew install palozano/tap/todolog
+```
+
+Install with Cargo:
+
+```sh
+cargo install todolog
+```
+
+Or run from a checkout:
+
 ```sh
 cargo run --
 cargo run -- --no-scan
